@@ -1,0 +1,12 @@
+[package]
+name = "anydoc_cli"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+
+[dependencies]
+anydoc = "0.1"
+
+[profile.release]
+strip = true
+lto = true
