@@ -9,4 +9,7 @@ anydoc = "0.1"
 
 [profile.release]
 strip = true
-lto = true
+# Fat LTO ("true") drops encoding_rs's cross-crate statics (UTF_8/UTF_16LE/...)
+# on every target except aarch64-apple-darwin, failing the link. Upstream anydoc
+# ships lto = "thin" for the same reason.
+lto = "thin"
