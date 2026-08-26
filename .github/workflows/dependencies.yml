@@ -1,0 +1,38 @@
+name: Dependencies
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  # Advisories are published against code that never changed, so a
+  # PR-only check goes stale on a quiet repo. This is the real safety net.
+  schedule:
+    - cron: "23 5 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-deny:
+    name: cargo-deny (${{ matrix.checks }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Advisories vary with the RustSec database and can fail on a commit
+        # that was green yesterday; the rest are deterministic. Split so a new
+        # CVE does not mask a license or source regression.
+        checks:
+          - advisories
+          - bans licenses sources
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Run cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check ${{ matrix.checks }}

@@ -32,13 +32,21 @@ Before you open a pull request, run the same checks CI runs:
 
 ```
 cargo fmt --check
-cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets --locked -- -D warnings
 cargo test
 cargo build --locked --release
+cargo deny check all          # needs: cargo install cargo-deny --locked
 ```
 
-The last one matters: `cargo test` builds without LTO, so only a release build
-proves the binary still links.
+Two of these are easy to skip and shouldn't be. `cargo test` builds without LTO,
+so only a release build proves the binary still links. And `cargo deny` is the
+check that matters most here: this tool parses untrusted documents, and almost
+all of that parsing happens in dependencies, so the dependency tree is the real
+attack surface. Its policy lives in `deny.toml`.
+
+CI runs these across four workflows: `lint`, `test`, `dependencies` (cargo-deny,
+also nightly, because advisories are published against code that never changed),
+and `codeql` (static analysis, results in the repo's Security tab).
 
 ## Usage
 

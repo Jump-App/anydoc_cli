@@ -1,0 +1,57 @@
+# Policy for cargo-deny; enforced by .github/workflows/dependencies.yml.
+#
+# anydoc_cli parses untrusted documents, and nearly all of that parsing happens
+# in transitive dependencies (pdf, zip, xml, encoding). The dependency tree is
+# the main attack surface, so it is held to an explicit policy.
+
+[graph]
+# Exactly the targets the release workflow ships. Advisories that only affect
+# platforms we do not build for are not our problem.
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "aarch64-unknown-linux-gnu" },
+    { triple = "x86_64-unknown-linux-musl" },
+    { triple = "aarch64-unknown-linux-musl" },
+    { triple = "x86_64-apple-darwin" },
+    { triple = "aarch64-apple-darwin" },
+]
+
+[advisories]
+# Every security vulnerability fails the build, with no exceptions configured.
+# Add an advisory ID here only with a comment saying why it cannot reach us.
+ignore = []
+yanked = "deny"
+# Unmaintained crates are flagged only when we depend on them directly. A
+# transitive one is not ours to swap out, and a permanently red check is a
+# check everyone learns to ignore. Tracked and raised upstream instead; see
+# ttf-parser (RUSTSEC-2026-0192), pulled in via lopdf -> pdf-inspector.
+unmaintained = "workspace"
+
+[licenses]
+# Every license present in the tree today, and nothing more. A dependency
+# arriving under anything else fails the check rather than sliding in.
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "Unlicense",
+    "0BSD",
+    "BSD-3-Clause",
+    "Zlib",
+    "Unicode-3.0",
+]
+# anydoc_cli itself declares no license field.
+private = { ignore = true }
+
+[bans]
+# Duplicate versions bloat a binary we ship six ways; warn rather than fail,
+# since a transitive pin is often not ours to resolve.
+multiple-versions = "warn"
+# A wildcard version accepts whatever gets published next. Never.
+wildcards = "deny"
+
+[sources]
+# Everything must come from crates.io. A dependency that starts resolving to a
+# git URL or a private registry is a supply-chain event, not a routine bump.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
