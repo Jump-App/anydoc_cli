@@ -1,0 +1,23 @@
+# Reporting policy for the weekly Slack digest (.github/workflows/advisory-report.yml).
+#
+# This is deliberately NOT the same policy as deny.toml. deny.toml is a gate: it
+# blocks a PR, so it stays narrow enough to be actionable. This file is a report:
+# it suppresses nothing, so a human sees the whole picture once a week.
+#
+# Two differences, both intentional:
+#   * unmaintained = "all"  - deny.toml only gates on crates we depend on
+#     directly, because a transitive unmaintained crate is not ours to swap and a
+#     permanently red gate gets ignored. The digest is where those still surface
+#     (this is what reports ttf-parser / RUSTSEC-2026-0192 today).
+#   * ignore = []           - kept empty forever. Anything muted in deny.toml
+#     must still show up here, or muting it would hide it from review entirely.
+#
+# No [graph] targets on purpose. deny.toml restricts to the six triples we ship;
+# omitting the key here considers every target, making this report a strict
+# superset of the gate. It cannot drift out of sync with deny.toml, and it cannot
+# miss something the gate would have caught.
+
+[advisories]
+ignore = []
+yanked = "deny"
+unmaintained = "all"
