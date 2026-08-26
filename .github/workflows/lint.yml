@@ -1,4 +1,4 @@
-name: Test
+name: Lint
 
 on:
   pull_request:
@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  lint:
+    name: Format and Clippy
     runs-on: ubuntu-latest
 
     steps:
@@ -21,14 +22,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.88.0
+          components: rustfmt, clippy
 
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Run tests
-        run: cargo test
+      - name: Check formatting
+        run: cargo fmt --check
 
-      # cargo test builds without LTO, so also prove the release profile links
-      # (fat LTO used to drop encoding_rs statics on this target).
-      - name: Build release binary
-        run: cargo build --locked --release
+      - name: Run Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings

@@ -1,0 +1,41 @@
+name: CodeQL
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  # Re-scan on a schedule: CodeQL ships new queries, so an unchanged commit
+  # can grow new findings.
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze Rust
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # Required to upload the SARIF results to the Security tab.
+      security-events: write
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: rust
+          # Rust analysis does not need a compiled artifact, so skip the
+          # build entirely rather than paying for one CodeQL ignores.
+          build-mode: none
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:rust"

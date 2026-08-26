@@ -3,6 +3,8 @@ name = "anydoc_cli"
 version = "0.1.1"
 edition = "2021"
 rust-version = "1.88"
+# Distributed as a binary via GitHub Releases, never to crates.io.
+publish = false
 
 [dependencies]
 anydoc = "0.1"

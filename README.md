@@ -6,6 +6,48 @@ GitHub-Flavored Markdown. Used by the Jump monorepo as a document parsing sideca
 binary is downloaded from this repo's GitHub Releases during `mix compile` (checksum
 verified) and invoked per document from an Elixir port.
 
+## Getting Started
+
+You need Rust 1.88.0. The `rust-toolchain.toml` file pins that version, so
+[rustup](https://rustup.rs) installs and picks it for you.
+
+Build and test:
+
+```
+git clone https://github.com/Jump-App/anydoc_cli.git
+cd anydoc_cli
+cargo build          # debug build
+cargo test           # CLI integration tests
+```
+
+Try it on a small file:
+
+```
+printf 'name,balance\nAcme,100.50\n' > sample.csv
+cargo run -- sample.csv out.md --format csv
+cat out.md
+```
+
+Before you open a pull request, run the same checks CI runs:
+
+```
+cargo fmt --check
+cargo clippy --all-targets --locked -- -D warnings
+cargo test
+cargo build --locked --release
+cargo deny check all          # needs: cargo install cargo-deny --locked
+```
+
+Two of these are easy to skip and shouldn't be. `cargo test` builds without LTO,
+so only a release build proves the binary still links. And `cargo deny` is the
+check that matters most here: this tool parses untrusted documents, and almost
+all of that parsing happens in dependencies, so the dependency tree is the real
+attack surface. Its policy lives in `deny.toml`.
+
+CI runs these across four workflows: `lint`, `test`, `dependencies` (cargo-deny,
+also nightly, because advisories are published against code that never changed),
+and `codeql` (static analysis, results in the repo's Security tab).
+
 ## Usage
 
 ```

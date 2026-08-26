@@ -6,8 +6,10 @@ on:
       - "v*"
   workflow_dispatch:
 
+# Least privilege by default: the validate and build jobs compile third-party
+# code and need no write access. Only publish re-grants contents: write.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
@@ -110,6 +112,10 @@ jobs:
     name: Publish GitHub Release
     needs: build
     runs-on: ubuntu-latest
+
+    permissions:
+      # Creating the release and uploading assets needs write; nothing else does.
+      contents: write
 
     steps:
       - name: Download build artifacts
