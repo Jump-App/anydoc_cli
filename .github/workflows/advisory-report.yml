@@ -1,0 +1,85 @@
+name: Advisory report
+
+# A weekly digest, not a gate. It never runs on pull_request, so by construction
+# it cannot block anyone's work; the blocking check lives in dependencies.yml.
+#
+# The two policies differ on purpose. dependencies.yml gates on what a PR author
+# can actually act on. This job suppresses nothing, so transitive advisories with
+# no available fix — ttf-parser / RUSTSEC-2026-0192 today — still get looked at
+# by a human once a week instead of sitting silently in the tree.
+on:
+  schedule:
+    # Mondays 09:00 UTC. A digest wants a moment when people are about to plan
+    # the week, not 3am when it scrolls past unread.
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: Weekly advisory digest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Scan for advisories
+        env:
+          DENY_CONFIG: deny.report.toml
+        run: |
+          # cargo-deny exits non-zero when it finds something, and finding
+          # something is the entire point of this job. Swallow the status here
+          # and let the reporter decide whether the run was actually usable.
+          cargo deny --config "${DENY_CONFIG}" --format json check advisories \
+            > advisories.ndjson 2>&1 || true
+
+          # Human-readable copy in the Actions log, so the digest is still
+          # reviewable if Slack delivery is what broke.
+          cargo deny --config "${DENY_CONFIG}" check advisories || true
+
+      - name: Build Slack payload
+        env:
+          DENY_CONFIG: deny.report.toml
+        run: |
+          python3 .github/scripts/advisory_report.py \
+            < advisories.ndjson > payload.json
+          jq -r '.text' payload.json >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Post to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [[ -z "${SLACK_WEBHOOK_URL}" ]]; then
+            echo "SLACK_WEBHOOK_URL secret is not set; nowhere to send the digest." >&2
+            exit 1
+          fi
+
+          # --data @file, never the payload inline: keeps the webhook URL out of
+          # the process list and the log.
+          rm -f slack-response.txt
+          http_status="$(curl --silent --show-error --fail-with-body \
+            --output slack-response.txt --write-out '%{http_code}' \
+            --request POST --header 'Content-type: application/json' \
+            --data @payload.json "${SLACK_WEBHOOK_URL}")" || true
+
+          if [[ "${http_status}" != "200" ]]; then
+            # A refused connection reports 000 and writes no body, so do not
+            # assume slack-response.txt exists or says anything useful.
+            echo "Slack rejected the digest (HTTP ${http_status}):" >&2
+            cat slack-response.txt 2>/dev/null >&2 || echo "(no response body)" >&2
+            exit 1
+          fi
+          echo "Digest delivered."

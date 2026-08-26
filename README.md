@@ -44,9 +44,17 @@ check that matters most here: this tool parses untrusted documents, and almost
 all of that parsing happens in dependencies, so the dependency tree is the real
 attack surface. Its policy lives in `deny.toml`.
 
-CI runs these across four workflows: `lint`, `test`, `dependencies` (cargo-deny,
+CI runs these across five workflows: `lint`, `test`, `dependencies` (cargo-deny,
 also nightly, because advisories are published against code that never changed),
-and `codeql` (static analysis, results in the repo's Security tab).
+`codeql` (static analysis, results in the repo's Security tab), and
+`advisory-report`.
+
+`advisory-report` is a Monday-morning Slack digest, not a gate — it never runs on
+a pull request and cannot block anyone. It exists because the `dependencies` gate
+only fails on what a PR author can actually fix, which means a transitive
+advisory with no available fix would otherwise sit in the tree unseen. The digest
+uses `deny.report.toml`, which suppresses nothing. It needs a `SLACK_WEBHOOK_URL`
+repository secret; the channel is whichever one the webhook was created against.
 
 ## Usage
 
