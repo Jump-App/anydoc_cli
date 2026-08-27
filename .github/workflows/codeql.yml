@@ -22,6 +22,8 @@ jobs:
       contents: read
       # Required to upload the SARIF results to the Security tab.
       security-events: write
+      # Required for workflows in private repositories.
+      actions: read
 
     steps:
       - name: Check out code
