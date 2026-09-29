@@ -1,0 +1,3 @@
+[tools]
+# Keep in sync with rust-toolchain.toml; mise exports RUSTUP_TOOLCHAIN, which overrides that file.
+rust = "1.88.0"

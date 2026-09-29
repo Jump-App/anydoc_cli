@@ -9,7 +9,9 @@ verified) and invoked per document from an Elixir port.
 ## Getting Started
 
 You need Rust 1.88.0. The `rust-toolchain.toml` file pins that version, so
-[rustup](https://rustup.rs) installs and picks it for you.
+[rustup](https://rustup.rs) installs and picks it for you. If you use
+[mise](https://mise.jdx.dev), `mise.toml` pins the same version; keep the two in
+sync, because mise exports `RUSTUP_TOOLCHAIN`, which overrides `rust-toolchain.toml`.
 
 Build and test:
 
@@ -81,6 +83,67 @@ Exit codes:
 
 Scanned/image-only PDFs need OCR, which anydoc does not do — they exit `2 Unsupported`;
 the caller falls back to its other parser.
+
+## Fuzzing
+
+`fuzz/` holds a [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) target,
+`convert`, that makes the same `anydoc::to_markdown_bytes` call as `main`. The
+first input byte picks the format hint (one of the 12 `--format` values, or none,
+so the content-sniffing path is fuzzed too); the rest is the document. For the
+Elixir port a hang or an OOM is as bad as a crash, so runs set time and memory
+limits.
+
+You need a nightly toolchain (AddressSanitizer needs `-Z` flags) and cargo-fuzz:
+
+```
+rustup toolchain install nightly --profile minimal
+cargo install cargo-fuzz --locked
+```
+
+Seed the corpus. Upstream anydoc's test fixtures work well; prefix each with the
+selector byte for its format (0 = no hint, then 1–12 in the order of `FORMATS` in
+`fuzz/fuzz_targets/convert.rs`: doc, docx, odt, pdf, ppt, pptx, rtf, epub,
+xls/xlsx/xlsb, ods, odp, csv):
+
+```
+git clone --depth 1 https://github.com/firecrawl/anydoc /tmp/anydoc
+mkdir -p fuzz/corpus/convert
+python3 - /tmp/anydoc fuzz/corpus/convert <<'EOF'
+import sys, os, hashlib
+src, dst = sys.argv[1:]
+idx = dict(doc=1, docx=2, odt=3, pdf=4, ppt=5, pptx=6, rtf=7, epub=8,
+           xls=9, xlsx=9, xlsb=9, ods=10, odp=11, csv=12)
+for root, _, files in os.walk(src):
+    if '/.git' in root: continue
+    for f in files:
+        ext = f.rsplit('.', 1)[-1].lower()
+        if ext not in idx: continue
+        body = open(os.path.join(root, f), 'rb').read()
+        if len(body) > 1 << 20: continue
+        for sel in {idx[ext], 0}:
+            data = bytes([sel]) + body
+            open(os.path.join(dst, hashlib.sha1(data).hexdigest()), 'wb').write(data)
+EOF
+```
+
+Run it (the first build takes ~10 minutes; `-max_total_time` is in seconds):
+
+```
+cargo +nightly fuzz run convert -O -- \
+  -fork=4 -ignore_crashes=1 -ignore_timeouts=1 -ignore_ooms=1 \
+  -rss_limit_mb=2048 -timeout=10 -max_total_time=28800
+```
+
+Findings land in `fuzz/artifacts/convert/` (`crash-*`, `timeout-*`, `oom-*`);
+reproduce one with `cargo +nightly fuzz run convert -O <file>`. Almost all the
+parsing is in anydoc and its dependencies, so report real bugs upstream at
+[firecrawl/anydoc](https://github.com/firecrawl/anydoc). `fuzz/corpus`,
+`fuzz/artifacts` and `fuzz/target` are gitignored.
+
+The fuzz crate depends on `anydoc` directly (the CLI is a binary, not a
+library), so it has its own `fuzz/Cargo.lock`. When you bump anydoc here, run
+`cargo update -p anydoc --manifest-path fuzz/Cargo.toml` so the fuzzer tests the
+version you ship.
 
 ## Releasing
 
