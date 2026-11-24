@@ -126,11 +126,7 @@ fn missing_input_file_exits_1() {
     assert!(stderr.contains("failed to read input"), "stderr: {stderr}");
 }
 
-fn convert_pdf(name: &str, pdf: &[u8]) -> (Output, Option<String>) {
-    convert_pdf_with(name, pdf, &[])
-}
-
-fn convert_pdf_with(name: &str, pdf: &[u8], flags: &[&str]) -> (Output, Option<String>) {
+fn convert_pdf(name: &str, pdf: &[u8], flags: &[&str]) -> (Output, Option<String>) {
     let input = tmp_path(&format!("{name}_in"));
     let output = tmp_path(&format!("{name}_out.md"));
     fs::write(&input, pdf).unwrap();
@@ -296,8 +292,11 @@ fn pdf(pages: &[Page]) -> Vec<u8> {
 
 #[test]
 fn text_pdf_converts_with_a_logo_and_a_blank_page() {
-    let (result, markdown) =
-        convert_pdf("text", &pdf(&[Page::TextWithLogo, Page::Text, Page::Blank]));
+    let (result, markdown) = convert_pdf(
+        "text",
+        &pdf(&[Page::TextWithLogo, Page::Text, Page::Blank]),
+        &[],
+    );
 
     assert_eq!(
         result.status.code(),
@@ -314,7 +313,7 @@ fn text_pdf_converts_with_a_logo_and_a_blank_page() {
 
 #[test]
 fn scanned_pdf_needs_ocr() {
-    let (result, markdown) = convert_pdf("scan", &pdf(&[Page::Scan, Page::Scan]));
+    let (result, markdown) = convert_pdf("scan", &pdf(&[Page::Scan, Page::Scan]), &[]);
 
     assert_needs_ocr(&result, markdown);
 }
@@ -323,12 +322,12 @@ fn scanned_pdf_needs_ocr() {
 fn one_scanned_page_among_text_pages_needs_ocr() {
     // anydoc on its own converts this one: it samples eight pages and calls a
     // document text once 60% of them are, so the scanned page goes missing
-    // from markdown that reads as complete. The scan sits past the pages a
-    // sample of eight takes from the start.
+    // from markdown that reads as complete. The scan is page 13, one of the
+    // eight it samples here, and seven text pages of eight still pass.
     let mut pages = vec![Page::Text; 30];
     pages[12] = Page::Scan;
 
-    let (result, markdown) = convert_pdf("mixed", &pdf(&pages));
+    let (result, markdown) = convert_pdf("mixed", &pdf(&pages), &[]);
 
     assert_needs_ocr(&result, markdown);
 }
@@ -337,7 +336,7 @@ fn one_scanned_page_among_text_pages_needs_ocr() {
 fn scan_under_a_few_lines_of_text_needs_ocr() {
     // A scanned form with an envelope id, a footer and a page number printed
     // over it has a text layer, and none of the form is in it.
-    let (result, markdown) = convert_pdf("stamped", &pdf(&[Page::Text, Page::StampedScan(3)]));
+    let (result, markdown) = convert_pdf("stamped", &pdf(&[Page::Text, Page::StampedScan(3)]), &[]);
 
     assert_needs_ocr(&result, markdown);
 }
@@ -350,7 +349,7 @@ fn garbled_text_among_good_pages_exits_7() {
         ("garbled_letters", Page::GarbledText),
         ("garbled_spaces", Page::DollarsForSpaces),
     ] {
-        let (result, markdown) = convert_pdf(name, &pdf(&[Page::Text, page, Page::Text]));
+        let (result, markdown) = convert_pdf(name, &pdf(&[Page::Text, page, Page::Text]), &[]);
 
         assert_eq!(result.status.code(), Some(7), "{name}");
         assert_eq!(
@@ -365,7 +364,7 @@ fn garbled_text_among_good_pages_exits_7() {
 fn skipping_scanned_pages_converts_the_pages_that_have_text_and_names_the_rest() {
     let unread = tmp_path("skip_unread");
 
-    let (result, markdown) = convert_pdf_with(
+    let (result, markdown) = convert_pdf(
         "skip",
         &pdf(&[Page::Text, Page::Scan, Page::Text, Page::StampedScan(3)]),
         &[
@@ -385,14 +384,14 @@ fn skipping_scanned_pages_converts_the_pages_that_have_text_and_names_the_rest()
     assert!(markdown.unwrap().contains("Avery Abernathy"));
     assert_eq!(fs::read_to_string(&unread).unwrap(), "2,4");
 
-    let _ = fs::remove_file(&unread);
+    fs::remove_file(&unread).ok();
 }
 
 #[test]
 fn a_whole_conversion_names_no_unread_pages() {
     let unread = tmp_path("whole_unread");
 
-    let (result, _markdown) = convert_pdf_with(
+    let (result, _markdown) = convert_pdf(
         "whole",
         &pdf(&[Page::Text, Page::Blank]),
         &["--unread-pages-out", unread.to_str().unwrap()],
@@ -401,12 +400,12 @@ fn a_whole_conversion_names_no_unread_pages() {
     assert_eq!(result.status.code(), Some(0));
     assert_eq!(fs::read_to_string(&unread).unwrap(), "");
 
-    let _ = fs::remove_file(&unread);
+    fs::remove_file(&unread).ok();
 }
 
 #[test]
 fn skipping_scanned_pages_still_fails_a_pdf_with_no_text() {
-    let (result, markdown) = convert_pdf_with(
+    let (result, markdown) = convert_pdf(
         "skip_all",
         &pdf(&[Page::Scan, Page::Scan]),
         &["--scanned-pages", "skip"],
@@ -421,6 +420,7 @@ fn password_protected_pdf_exits_5() {
     let (result, markdown) = convert_pdf(
         "encrypted",
         include_bytes!("fixtures/password_protected.pdf"),
+        &[],
     );
 
     assert_eq!(result.status.code(), Some(5));
@@ -462,15 +462,15 @@ fn conversion_past_its_timeout_exits_4() {
 
 #[test]
 fn bad_flags_exit_1() {
-    for flags in [
+    for [flag, value] in [
         ["--timeout-secs", "0"],
         ["--timeout-secs", "soon"],
         ["--scanned-pages", "some"],
         ["--deadline", "5"],
     ] {
-        let result = run(&["in", "out", flags[0], flags[1]]);
+        let result = run(&["in", "out", flag, value]);
 
-        assert_eq!(result.status.code(), Some(1), "flags: {flags:?}");
+        assert_eq!(result.status.code(), Some(1), "flag: {flag} {value}");
         assert!(String::from_utf8_lossy(&result.stderr).contains("Usage:"));
     }
 }

@@ -10,7 +10,7 @@ publish = false
 anydoc = "0.2"
 # The same pdf-inspector anydoc converts PDFs with, named here for the
 # detection settings anydoc does not expose (see `pages_needing_ocr`).
-pdf-inspector = "1.14.2"
+pdf-inspector = "1.15"
 
 [profile.release]
 strip = true

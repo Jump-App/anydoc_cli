@@ -32,7 +32,7 @@ use std::thread;
 use std::time::Duration;
 
 use anydoc::{ConvertError, Format};
-use pdf_inspector::{DetectionConfig, PdfError, ScanStrategy};
+use pdf_inspector::{DetectionConfig, PdfError, ScanStrategy, OCR_REASON_NO_TEXT};
 
 const EXIT_USAGE_OR_IO: i32 = 1;
 const EXIT_CONVERT_ERROR: i32 = 2;
@@ -50,10 +50,6 @@ const USAGE: &str = "Usage: anydoc_cli <input-path> <output-path> [--format <fmt
 /// many text-showing operators up. Below it the text is a stamp, a header or
 /// a page number over a scan, not the page's content.
 const MIN_TEXT_OPS_ON_IMAGE_PAGE: u32 = 10;
-
-/// pdf-inspector's reason for a page with no text and no image: a blank page.
-/// Nothing on it for OCR to read, so it does not make a document need OCR.
-const REASON_BLANK_PAGE: &str = "no_text";
 
 /// What a PDF's scanned pages do to the conversion.
 #[derive(Clone, Copy)]
@@ -172,23 +168,26 @@ fn parse_args(args: &[String]) -> Result<Args<'_>, String> {
     };
 
     for pair in flags.chunks(2) {
-        match pair {
-            [flag, value] if flag == "--format" => match Format::from_extension(value) {
+        let [flag, value] = pair else {
+            return Err("a flag is missing its value".to_string());
+        };
+
+        match flag.as_str() {
+            "--format" => match Format::from_extension(value) {
                 Some(format) => parsed.format = Some(format),
                 None => return Err(format!("unrecognized format: {value}")),
             },
-            [flag, value] if flag == "--timeout-secs" => match value.parse::<u64>() {
+            "--timeout-secs" => match value.parse::<u64>() {
                 Ok(seconds) if seconds > 0 => parsed.timeout = Some(Duration::from_secs(seconds)),
                 _ => return Err(format!("invalid timeout: {value}")),
             },
-            [flag, value] if flag == "--scanned-pages" => match value.as_str() {
+            "--scanned-pages" => match value.as_str() {
                 "fail" => parsed.scanned_pages = ScannedPages::Fail,
                 "skip" => parsed.scanned_pages = ScannedPages::Skip,
                 _ => return Err(format!("unrecognized scanned pages mode: {value}")),
             },
-            [flag, value] if flag == "--unread-pages-out" => parsed.unread_pages_out = Some(value),
-            [flag, _] => return Err(format!("unrecognized flag: {flag}")),
-            _ => return Err("a flag is missing its value".to_string()),
+            "--unread-pages-out" => parsed.unread_pages_out = Some(value),
+            _ => return Err(format!("unrecognized flag: {flag}")),
         }
     }
 
@@ -213,12 +212,15 @@ fn to_markdown(
 ) -> Result<Converted, Failure> {
     let pdf = format.or_else(|| Format::from_bytes(bytes)) == Some(Format::Pdf);
 
-    match (pdf, scanned_pages) {
-        (true, ScannedPages::Fail) => complete_pdf_to_markdown(bytes).map(whole),
-        (true, ScannedPages::Skip) => readable_pdf_to_markdown(bytes),
-        (false, _) => anydoc::to_markdown_bytes(bytes, format)
+    if !pdf {
+        return anydoc::to_markdown_bytes(bytes, format)
             .map(whole)
-            .map_err(Failure::Convert),
+            .map_err(Failure::Convert);
+    }
+
+    match scanned_pages {
+        ScannedPages::Fail => complete_pdf_to_markdown(bytes).map(whole),
+        ScannedPages::Skip => readable_pdf_to_markdown(bytes),
     }
 }
 
@@ -326,11 +328,14 @@ fn pages_needing_ocr(bytes: &[u8]) -> Result<Vec<u32>, Failure> {
         .collect())
 }
 
+/// A page flagged only for having no text and no image is blank. Nothing on
+/// it for OCR to read, so it does not make a document need OCR.
 fn blank(reasons: Option<&Vec<String>>) -> bool {
-    reasons.is_some_and(|reasons| reasons.iter().all(|reason| reason == REASON_BLANK_PAGE))
+    reasons.is_some_and(|reasons| reasons.iter().all(|reason| reason == OCR_REASON_NO_TEXT))
 }
 
-/// As anydoc maps them, so a PDF fails the way its other formats do.
+/// To the variants anydoc maps them to, so a PDF fails the way its other
+/// formats do.
 fn pdf_failure(error: PdfError) -> Failure {
     Failure::Convert(match error {
         PdfError::Encrypted => ConvertError::Encrypted,

@@ -49,7 +49,7 @@ also nightly, because advisories are published against code that never changed),
 `codeql` (static analysis, results in the repo's Security tab), and
 `advisory-report`.
 
-`advisory-report` is a Monday-morning Slack digest, not a gate — it never runs on
+`advisory-report` is a Monday-morning Slack digest, not a gate: it never runs on
 a pull request and cannot block anyone. It exists because the `dependencies` gate
 only fails on what a PR author can actually fix, which means a transitive
 advisory with no available fix would otherwise sit in the tree unseen. The digest
@@ -64,7 +64,7 @@ anydoc_cli <input-path> <output-path> [--format <fmt>] [--timeout-secs <n>] [--s
 
 - `<fmt>` is a bare extension anydoc recognizes: `pdf`, `doc`, `docx`, `ppt`, `pptx`,
   `xls`, `xlsx`, `odt`, `ods`, `odp`, `rtf`, `epub`, `csv`. When omitted, the format is
-  sniffed from the file content — signature-less formats (CSV) must be named explicitly.
+  sniffed from the file content, so signature-less formats (CSV) must be named explicitly.
   The caller passes extension-less tmp paths on purpose: the format hint comes from the
   server-validated content type, never from a client-controlled filename.
 - `--timeout-secs` ends the process with exit code 4 when the run takes longer. Pass it
@@ -80,7 +80,7 @@ anydoc_cli <input-path> <output-path> [--format <fmt>] [--timeout-secs <n>] [--s
   separated, written next to the markdown and empty when every page is in. A caller that
   skips scanned pages passes it so it can say which pages it did not read.
 - Markdown is written to `<output-path>`, and only on exit code 0.
-- **Document content never reaches stdout/stderr** — the Elixir port logs everything the
+- **Document content never reaches stdout/stderr**: the Elixir port logs everything the
   process prints, and those logs are exported. Keep it that way.
 
 Exit codes are the whole contract: the caller cannot read what the process prints, so
@@ -90,7 +90,7 @@ every outcome it treats differently has its own code.
 |------|---------|
 | 0 | success: the markdown holds every page (with `--scanned-pages skip`, every page that has text) |
 | 1 | usage or I/O error |
-| 2 | conversion error (`ConvertError` variant name on stderr: `Unsupported`, `Malformed`, `MissingPart`, `Io`) |
+| 2 | conversion error (`ConvertError` variant name on stderr: `Unsupported`, `Malformed`, `MissingPart`, `Io`, or `Unknown` for a variant this build does not name) |
 | 3 | needs OCR: a PDF with at least one page whose content is in pixels (with `--scanned-pages skip`, with none that has text) |
 | 4 | timed out (`--timeout-secs`) |
 | 5 | encrypted: a password is needed to open it |
@@ -108,11 +108,12 @@ some: a statement of nine text pages and one scanned page converts, without the 
 page. A scan with a few lines of text printed over it (an envelope id, a footer, a page
 number) converts too, as those lines.
 
-So before converting a PDF (unless told `--scanned-pages skip`), this CLI runs
-pdf-inspector's detection itself with every page read, a document counted as text only
-when all of its pages are, and a page that carries an image trusted to its text only
-from ten text runs up (`pages_needing_ocr` in `src/main.rs`). Any page that fails is
-exit code 3. A blank page is not one of them: there is nothing on it to read.
+So before converting a PDF, this CLI runs pdf-inspector's detection itself with every
+page read, a document counted as text only when all of its pages are, and a page that
+carries an image trusted to its text only from ten text runs up (`pages_needing_ocr` in
+`src/main.rs`). Any page that fails is exit code 3, or with `--scanned-pages skip` a
+page left out and named. A blank page is not one of them: there is nothing on it to
+read.
 
 It leans to OCR on purpose. A cover page of a logo and three lines sends its document to
 OCR as well, which costs the caller a paid parse; a dropped page costs a wrong answer.
@@ -137,7 +138,8 @@ document, which is the same lean to OCR as the scan check.
 
 That is why a PDF goes to pdf-inspector directly here and not through anydoc: which
 pages are scanned and whether the text is garbled are answers anydoc does not pass on.
-`complete_pdf_to_markdown` in `src/main.rs` otherwise does what anydoc's PDF path does.
+`complete_pdf_to_markdown` in `src/main.rs` otherwise follows anydoc's PDF path, except
+that it looks for garbled text before it extracts the flagged pages again.
 
 What still converts with content missing, because nothing in pdf-inspector's public API
 tells it apart from a page that is fine:
