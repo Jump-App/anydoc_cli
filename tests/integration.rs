@@ -177,6 +177,8 @@ enum Page {
     /// Twenty-five lines of text whose spaces extract as `$`, what another
     /// kind of broken character map does.
     DollarsForSpaces,
+    /// One short line of text.
+    Line,
     Blank,
 }
 
@@ -241,6 +243,10 @@ fn pdf(pages: &[Page]) -> Vec<u8> {
                         "$of$Avery$Abernathy$is$worth$",
                     )
                     .replace(" dollars", "$dollars"),
+                "",
+            ),
+            Page::Line => (
+                "BT /F1 10 Tf 72 700 Td (Paid in full, thank you) Tj ET\n".to_string(),
                 "",
             ),
             Page::Blank => (String::new(), ""),
@@ -320,12 +326,12 @@ fn scanned_pdf_needs_ocr() {
 
 #[test]
 fn one_scanned_page_among_text_pages_needs_ocr() {
-    // anydoc on its own converts this one: it samples eight pages and calls a
-    // document text once 60% of them are, so the scanned page goes missing
-    // from markdown that reads as complete. The scan is page 13, one of the
-    // eight it samples here, and seven text pages of eight still pass.
+    // anydoc on its own converts this one: its defaults look at eight of the
+    // thirty pages (1, 5, 9, 13, 17, 21, 25 and 30), find text on each and
+    // never reach page 12, which goes missing from markdown that reads as
+    // complete.
     let mut pages = vec![Page::Text; 30];
-    pages[12] = Page::Scan;
+    pages[11] = Page::Scan;
 
     let (result, markdown) = convert_pdf("mixed", &pdf(&pages), &[]);
 
@@ -385,6 +391,95 @@ fn skipping_scanned_pages_converts_the_pages_that_have_text_and_names_the_rest()
     assert_eq!(fs::read_to_string(&unread).unwrap(), "2,4");
 
     fs::remove_file(&unread).ok();
+}
+
+#[test]
+fn skipping_scanned_pages_reads_a_text_page_a_sample_of_eight_misses() {
+    // pdf-inspector's defaults look at pages 1, 3, 5, 7, 9, 11, 13 and 20 of
+    // these twenty, find no text and return no markdown for what they take
+    // for a scan. The typed page is the second.
+    let unread = tmp_path("skip_unsampled_unread");
+    let mut pages = vec![Page::Scan; 20];
+    pages[1] = Page::Text;
+
+    let (result, markdown) = convert_pdf(
+        "skip_unsampled",
+        &pdf(&pages),
+        &[
+            "--scanned-pages",
+            "skip",
+            "--unread-pages-out",
+            unread.to_str().unwrap(),
+        ],
+    );
+
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(markdown.unwrap().contains("Avery Abernathy"));
+    assert_eq!(
+        fs::read_to_string(&unread).unwrap(),
+        "1,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20"
+    );
+
+    fs::remove_file(&unread).ok();
+}
+
+#[test]
+fn skipping_scanned_pages_names_a_garbled_page() {
+    let unread = tmp_path("skip_garbled_unread");
+
+    let (result, markdown) = convert_pdf(
+        "skip_garbled",
+        &pdf(&[Page::Text, Page::GarbledText, Page::Text]),
+        &[
+            "--scanned-pages",
+            "skip",
+            "--unread-pages-out",
+            unread.to_str().unwrap(),
+        ],
+    );
+
+    assert_eq!(
+        result.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(markdown.unwrap().contains("Avery Abernathy"));
+    assert_eq!(fs::read_to_string(&unread).unwrap(), "2");
+
+    fs::remove_file(&unread).ok();
+}
+
+#[test]
+fn a_short_pdf_with_a_blank_page_needs_ocr() {
+    // Not what anyone wants, and pinned so a pdf-inspector that fixes it
+    // shows up here: it asks for OCR on every page of a document this short,
+    // and its answer does not tell the empty page from one whose text it
+    // threw away as garbage. The README says so.
+    let (result, markdown) = convert_pdf("short_blank", &pdf(&[Page::Line, Page::Blank]), &[]);
+
+    assert_needs_ocr(&result, markdown);
+}
+
+#[test]
+fn an_unread_pages_file_that_cannot_be_written_leaves_no_markdown() {
+    let (result, markdown) = convert_pdf(
+        "unwritable_unread",
+        &pdf(&[Page::Text]),
+        &["--unread-pages-out", "/nonexistent-anydoc-cli-dir/unread"],
+    );
+
+    assert_eq!(result.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&result.stderr).trim_end(),
+        "failed to write output: entity not found"
+    );
+    assert_eq!(markdown, None);
 }
 
 #[test]

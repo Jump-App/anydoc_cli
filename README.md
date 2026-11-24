@@ -76,10 +76,11 @@ anydoc_cli <input-path> <output-path> [--format <fmt>] [--timeout-secs <n>] [--s
   rest out, failing only a PDF with no text at all: for a caller with nothing to fall
   back to, which would rather read most of a document than none of it.
 - `--unread-pages-out` names a file that gets the numbers of the PDF pages whose content,
-  or part of it, is in pixels and so is not in the markdown: counted from 1, comma
-  separated, written next to the markdown and empty when every page is in. A caller that
-  skips scanned pages passes it so it can say which pages it did not read.
-- Markdown is written to `<output-path>`, and only on exit code 0.
+  or part of it, is not in the markdown as text that can be trusted: scanned pages, and
+  pages that extracted as nothing or as garbage. Counted from 1, comma separated, written
+  just before the markdown and empty when every page is in. A caller that skips scanned
+  pages passes it so it can say which pages it did not read.
+- Markdown is written to `<output-path>` last, so a run that fails leaves none there.
 - **Document content never reaches stdout/stderr**: the Elixir port logs everything the
   process prints, and those logs are exported. Keep it that way.
 
@@ -102,18 +103,22 @@ every outcome it treats differently has its own code.
 anydoc does no OCR. A PDF with a scanned page must fail whole, because markdown that is
 missing a page reads as complete and nobody downstream can tell.
 
-anydoc's own check is not strict enough for that. It asks pdf-inspector with the
-defaults, which sample eight pages and call the document text once 60% of them have
-some: a statement of nine text pages and one scanned page converts, without the scanned
-page. A scan with a few lines of text printed over it (an envelope id, a footer, a page
-number) converts too, as those lines.
+anydoc fails such a PDF too, but its check is not strict enough. It asks pdf-inspector
+with the defaults, which look at eight pages and go through the rest only when one of
+those eight carries an image: a thirty-page statement whose one scanned page is not
+among the eight converts, without that page. A scan with a few lines of text printed
+over it (an envelope id, a footer, a page number) converts too, as those lines. anydoc
+has no setting for either.
 
 So before converting a PDF, this CLI runs pdf-inspector's detection itself with every
 page read, a document counted as text only when all of its pages are, and a page that
 carries an image trusted to its text only from ten text runs up (`pages_needing_ocr` in
 `src/main.rs`). Any page that fails is exit code 3, or with `--scanned-pages skip` a
 page left out and named. A blank page is not one of them: there is nothing on it to
-read.
+read. The exception is a document of under 500 characters with a blank page, such as a
+one-line receipt with an empty back: pdf-inspector asks for OCR on all of a document
+that short, and its answer does not tell an empty page from one whose text it threw
+away as garbage. That one goes to OCR for nothing.
 
 It leans to OCR on purpose. A cover page of a logo and three lines sends its document to
 OCR as well, which costs the caller a paid parse; a dropped page costs a wrong answer.
@@ -126,20 +131,23 @@ A PDF can carry a text layer that is not the text on the page: a font subset who
 character map is broken extracts as other letters, symbols or `Word$Word$Word`. It is
 all there and none of it is right, which reads as complete just like a missing page.
 pdf-inspector detects it (replacement characters, private-use runs, `$` for spaces,
-letter statistics of a substitution cipher) and anydoc only logs a warning, so this CLI
-reads the flag itself and exits 7. OCR reads such a file correctly, since the pixels are
-fine. With `--scanned-pages skip` the text is returned as it is: that caller has no
-other parser to ask.
+letter statistics of a substitution cipher). anydoc fails a PDF for it only on the pages
+pdf-inspector can name and logs a warning for the rest, so this CLI reads the flag
+itself and exits 7. OCR reads such a file correctly, since the pixels are fine. With
+`--scanned-pages skip` the text is returned as it is, and its pages are named as unread
+where pdf-inspector can say which they are: that caller has no other parser to ask.
 
 The detection has a floor. A few garbled lines on a page of good text (two or three
 lines in a broken font) stay under pdf-inspector's thresholds and convert with those
 lines wrong. It also has no ceiling: one replacement character anywhere fails the whole
 document, which is the same lean to OCR as the scan check.
 
-That is why a PDF goes to pdf-inspector directly here and not through anydoc: which
-pages are scanned and whether the text is garbled are answers anydoc does not pass on.
-`complete_pdf_to_markdown` in `src/main.rs` otherwise follows anydoc's PDF path, except
-that it looks for garbled text before it extracts the flagged pages again.
+That is why a PDF goes to pdf-inspector directly here and not through anydoc: anydoc
+does not let a caller change how pdf-inspector looks for scanned pages, does not fail on
+every garbled text, and has no way to convert the pages that have text and name the
+rest. `complete_pdf_to_markdown` in `src/main.rs` otherwise follows anydoc's PDF path,
+except that it has pdf-inspector look at every page and checks for garbled text before
+it extracts the flagged pages again.
 
 What still converts with content missing, because nothing in pdf-inspector's public API
 tells it apart from a page that is fine:
@@ -149,6 +157,9 @@ tells it apart from a page that is fine:
   its own OCR layer (that layer is used as is)
 - text drawn inside an image on a page that otherwise has plenty of text, such as a
   chart or a screenshot
+- a page that holds only a small drawing, with no text and no image: it is taken for a
+  blank page. A page of text drawn as outlines is not: pdf-inspector recognizes those
+  from about a thousand path operators up, and they are exit code 3
 - pictures in the other formats (a scan pasted into a Word file comes out as its alt text)
 
 ## Releasing
